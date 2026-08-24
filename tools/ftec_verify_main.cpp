@@ -1,4 +1,5 @@
 #include "dd_backend.hpp"
+#include "sat_backend.hpp"
 #include "ftec/dag.hpp"
 #include "ftec/verify.hpp"
 
@@ -62,7 +63,13 @@ void usage(const char* argv0) {
         << "  dd     decision diagrams over Pauli sets: propagates the error set\n"
         << "         through each circuit, injects every two-qubit fault, and asks\n"
         << "         whether any reachable set holds two errors whose product is a\n"
-        << "         logical operator.\n";
+        << "         logical operator.\n"
+        << "  sat    CryptoMiniSat over the same symbolic Pauli propagation: step()\n"
+        << "         is AllSAT over reachable outcomes with a cumulative fault budget;\n"
+        << "         check() searches, per fault count t=0..tau, for two independent\n"
+        << "         fault assignments sharing this state's record whose residual\n"
+        << "         errors' product is a logical operator (same criterion as dd, only\n"
+        << "         compared within the same t -- see README).\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -252,6 +259,8 @@ int main(int argc, char** argv) {
 
         if (backend_name == "dd") {
             backend = ftec::make_dd_backend();
+        } else if (backend_name == "sat") {
+            backend = ftec::make_sat_backend();
         } else if (backend_name == "mock") {
             backend = std::make_unique<MockBackend>();
         } else {

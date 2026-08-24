@@ -14,8 +14,8 @@
                                                                      ▼
                                                          ┌─── ftec::Backend ───┐
                                                          │  mock               │
-                                                         │  dd(BDD,尚未接上)    │
-                                                         │  未來其他解法         │
+                                                         │  dd(BDD,已驗證)      │
+                                                         │  sat(SAT,已驗證)      │
                                                          └─────────────────────┘
 ```
 
@@ -32,6 +32,7 @@ src/fpdl/  src/ftec/
 tools/              各個執行檔的進入點
 tests/
 backends/dd/        decision-diagram backend(自成一套,含自己的文件與測試)
+backends/sat/       SAT backend(CryptoMiniSat;目前只有符號傳播,進行中,見下方 Backend 一節)
 ```
 
 ## 建置
@@ -44,6 +45,11 @@ ctest --test-dir build
 
 不需要 autotools。BuDDy(decision-diagram backend 的依賴)由 `cmake/BuDDy.cmake` 直接當
 一般 CMake target 編;已有 checkout 可用 `-DFTEC_BUDDY_SOURCE_DIR=<path>` 指過去省下下載。
+
+SAT backend(`backends/sat/`)依賴 CryptoMiniSat 5,用 `find_package(cryptominisat5 CONFIG
+REQUIRED)` 抓,要先自己裝好(macOS:`brew install cryptominisat`),目前還沒有像 BuDDy
+那樣自動抓原始碼編的 CMake module——如果 `cmake -S . -B build` 在這步失敗,先確認
+`cryptominisat5` 裝了沒有。
 
 ## 使用
 
@@ -139,6 +145,24 @@ virtual std::vector<std::pair<Outcome, StateId>> step(StateId, const CircuitRef&
 - **mock** —— 不模擬任何物理:從全零 outcome 出發,在預算內才回報偏離的 outcome。用來
   檢查走訪、路由與 record 記帳,以及證明 `ftec::Backend` 真的是抽象層。
   **它不判斷容錯性**,CLI 的輸出也會這樣說。
+- **sat**(`backends/sat/`)—— 跟 dd 一樣,把 fault 建成 CX/CZ/CY 上的符號公式(GF(2) 上
+  的 XOR),但用 SAT solver(CryptoMiniSat)求解而不是 BDD;沿用 `ftec::qasm` 的共用前
+  端,不是另一份 QASM parser。`--backend=sat` 可以用了:
+  - `step()`:AllSAT——反覆 `solve()`、把列到的 outcome 位元組合當 blocking clause 排
+    除,直到 UNSAT,列出這個電路實際可達的每個 distinct outcome;fault 預算是**累積
+    的**(跨整條 path,不是每個電路重算)。
+  - `check()`:對每個 `t=0..tau`,把目前狀態的歷史複製成兩份獨立的 fault 變數(F1、
+    F2,靠不同的 `tag` offset 區隔開,不用重跑 propagation),要求兩者都恰好用了 `t`
+    個 fault、共用同一個 record,問兩者的殘留誤差乘積是否落在 `N(S)\S`——只比較**同
+    一個** `t`,不跨 `t` 比較,跟 dd 的 `check_uncached` 一致,兩個 backend 的結果才
+    能直接對照。
+  - `Φ_so_far`(哪些 outcome bit 已經被釘死成什麼值)、每個 data qubit 目前的符號誤
+    差,都存在 `StateId` 裡,足以讓每次 `step()`/`check()` 重建一個獨立、乾淨的 SAT
+    instance,不需要維護一顆跨分支共用的 solver。
+  - 在 CR17、Bha23 上實測,`paths reached`/`records reached`/`circuits run` 跟
+    `--backend=dd` **完全一致**,而且在已知會失敗的 `Bha23_[[7,1,3]]_fig6` 上,兩個
+    backend 都在**完全相同的 `t=1`**、完全相同的 path/record/circuit 數量下抓到失
+    敗(找到的具體反例 Pauli 不同,但都是合法的見證——這是存在性搜尋的正常現象)。
 
 ### 已驗證的結果
 
@@ -198,3 +222,7 @@ qubit 的 x 分量上(`S := S ∧ (m_i ⟺ x_q)`,然後才 reset),分裂只發�
    `FSE_b.qasm` 用一顆 ancilla 配合 `reset` 產生 4 個 syndrome bit,那個模型表達不出來。
    順序是**先把測量結果寫進 record,再 reset**。
 3. **接上 dd backend**,先用手改成受限方言的 CR17 驗證管線,再換成真正的前端。
+4. ~~sat backend 的 `step()`/`check()`~~ **完成**,見上面 Backend 一節。還沒測過的:
+   CB18/LL25 這種大協定(`dd` 在這些協定上要跑上千秒,`sat` 目前只在小協定上驗證過,
+   效能特性未知,尤其是 `check()` 目前是暴力枚舉 `t`、每個 `t` 重建一次 solver,沒有
+   用到前面討論過的 CEGAR 或 incremental solving)。

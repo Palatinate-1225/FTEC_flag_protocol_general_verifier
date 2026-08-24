@@ -48,10 +48,12 @@ target_link_libraries(ftec_core PUBLIC fpdl_parser)
 target_compile_options(ftec_core PRIVATE -Wall -Wextra -Wpedantic)
 
 add_subdirectory(backends/dd)
+add_subdirectory(backends/sat)
 
 add_executable(ftec-verify tools/ftec_verify_main.cpp)
-# ftec_dd links ftec_core publicly, so naming it here too would be a duplicate.
-target_link_libraries(ftec-verify PRIVATE ftec_dd)
+# ftec_dd and ftec_sat both link ftec_core publicly, so naming it here too
+# would be a duplicate.
+target_link_libraries(ftec-verify PRIVATE ftec_dd ftec_sat)
 target_compile_options(ftec-verify PRIVATE -Wall -Wextra -Wpedantic)
 
 if(BUILD_TESTING)
