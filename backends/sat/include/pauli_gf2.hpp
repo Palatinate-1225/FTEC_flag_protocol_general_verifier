@@ -70,6 +70,10 @@ XorTerm xor_combine(const XorTerm& a, const XorTerm& b);
 struct SymbolicPauli {
     XorTerm x;
     XorTerm z;
+
+    friend bool operator<(const SymbolicPauli& a, const SymbolicPauli& b) {
+        return std::tie(a.x, a.z) < std::tie(b.x, b.z);
+    }
 };
 
 struct FaultLocation {

@@ -37,6 +37,10 @@ LocationKey location_of(const sat::FaultVar& v) { return {v.tag, v.location}; }
 struct FixedOutcome {
     sat::XorTerm formula;
     bool value = false;
+
+    friend bool operator<(const FixedOutcome& a, const FixedOutcome& b) {
+        return std::tie(a.formula, a.value) < std::tie(b.formula, b.value);
+    }
 };
 
 // Everything a StateId needs to remember: what's already been observed
@@ -77,6 +81,90 @@ sat::XorTerm symplectic_formula(const std::vector<sat::SymbolicPauli>& Q,
     }
     return result;
 }
+
+// Relabels every distinct raw fault-variable tag a formula mentions to a
+// small dense id, in first-appearance order over a *fixed, deterministic*
+// traversal of the state (fixed_outcomes in order, then data[] in order).
+// Two states that came from different histories but represent the same
+// content end up with identical canonical formulas -- that's the whole
+// point: it's what makes them cache-key equal despite step()/check() never
+// having assigned them the same raw tags. propagate() doesn't care whether
+// the tags it's given are "real" or canonical, so a cache miss can run
+// directly on canonicalized input and produce a canonical (and thus
+// reusable) result; a hit only needs to map canonical ids back to this
+// call's real tags, no re-solving.
+class Canonicalizer {
+public:
+    sat::FaultVar canon_var(const sat::FaultVar& v) {
+        const auto [it, inserted] = to_canonical_.try_emplace(v.tag, next_canonical_);
+        if (inserted) {
+            raw_of_canonical_.push_back(v.tag);
+            ++next_canonical_;
+        }
+        return {it->second, v.location, v.part};
+    }
+    sat::XorTerm canonicalize(const sat::XorTerm& term) {
+        sat::XorTerm out;
+        for (const auto& v : term) out.insert(canon_var(v));
+        return out;
+    }
+    std::size_t next_canonical() const { return next_canonical_; }
+    std::size_t raw_tag_of(std::size_t canonical_id) const { return raw_of_canonical_.at(canonical_id); }
+
+private:
+    std::map<std::size_t, std::size_t> to_canonical_;
+    std::vector<std::size_t> raw_of_canonical_;
+    std::size_t next_canonical_ = 0;
+};
+
+// Maps a canonicalized formula back to real fault variables for one
+// specific call: `id_to_real[canonical_id]` is the real tag to substitute.
+sat::XorTerm decanonicalize(const sat::XorTerm& canon_term, const std::vector<std::size_t>& id_to_real) {
+    sat::XorTerm out;
+    for (const auto& v : canon_term) out.insert({id_to_real.at(v.tag), v.location, v.part});
+    return out;
+}
+
+// check()'s cache key: a canonicalized (tag-independent) SatState. The
+// cache value is just optional<Failure> -- unlike step(), check() never
+// creates new states, so a hit needs no decanonicalization at all.
+struct CheckCacheKey {
+    std::vector<FixedOutcome> fixed_outcomes;
+    std::vector<sat::SymbolicPauli> data;
+
+    friend bool operator<(const CheckCacheKey& a, const CheckCacheKey& b) {
+        return std::tie(a.fixed_outcomes, a.data) < std::tie(b.fixed_outcomes, b.data);
+    }
+};
+
+// step()'s cache key: which circuit, plus the canonicalized state it's
+// stepping from. Unlike check(), a hit still needs *some* per-call work: the
+// cached outcomes' formulas are in canonical terms and must be mapped to
+// this call's real tags to become real states.
+struct StepCacheKey {
+    std::string qasm;
+    std::vector<FixedOutcome> fixed_outcomes;
+    std::vector<sat::SymbolicPauli> data;
+
+    friend bool operator<(const StepCacheKey& a, const StepCacheKey& b) {
+        return std::tie(a.qasm, a.fixed_outcomes, a.data) < std::tie(b.qasm, b.fixed_outcomes, b.data);
+    }
+};
+
+// One reachable outcome, entirely in canonical terms: the concrete
+// syndrome/flag bits (already tag-independent) plus the *new* fixed
+// outcomes and data state this step contributes (not prev's, which the
+// caller already has).
+struct CachedOutcome {
+    std::vector<bool> syndrome;
+    std::vector<bool> flag;
+    std::vector<FixedOutcome> new_fixed_outcomes;
+    std::vector<sat::SymbolicPauli> new_data;
+};
+
+struct StepCacheEntry {
+    std::vector<CachedOutcome> outcomes;
+};
 
 // Small CryptoMiniSat gadget wrapper: lazy one-variable-per-FaultVar
 // allocation plus the handful of Tseitin gates this encoder needs.
@@ -207,15 +295,21 @@ public:
         states_.push_back(SatState{{}, std::vector<sat::SymbolicPauli>(n_)});
         next_tag_ = 0;
         step_calls_ = 0;
+        check_calls_ = 0;
+        step_cache_hits_ = 0;
+        check_cache_hits_ = 0;
+        check_cache_.clear();
+        step_cache_.clear();
     }
 
     StateId initial_state() override { return 0; }
 
     std::vector<std::pair<Outcome, StateId>> step(StateId id, const CircuitRef& circuit) override {
         ++step_calls_;
-        // By value, not reference: the AllSAT loop below pushes new states
-        // onto states_ as it finds them, which can reallocate the vector
-        // and would dangle a reference held across those pushes.
+        // By value, not reference: canonicalization below copies everything
+        // it needs up front, but keeping this pattern (matching check())
+        // avoids re-introducing the dangling-reference bug the AllSAT loop
+        // caused earlier, if this function is ever restructured again.
         const SatState prev = states_[id];
         const auto& program = program_for(circuit);
 
@@ -229,11 +323,61 @@ public:
                                      " data qubits but the code has " + std::to_string(n_));
         }
 
-        std::map<sat::Wire, sat::SymbolicPauli> initial;
-        for (std::size_t i = 0; i < n_; ++i) initial[{circuit.data_qubits, i}] = prev.data[i];
+        Canonicalizer canon;
+        StepCacheKey key;
+        key.qasm = circuit.qasm.string();
+        key.fixed_outcomes.reserve(prev.fixed_outcomes.size());
+        for (const auto& f : prev.fixed_outcomes) key.fixed_outcomes.push_back({canon.canonicalize(f.formula), f.value});
+        key.data.resize(n_);
+        for (std::size_t i = 0; i < n_; ++i) {
+            key.data[i].x = canon.canonicalize(prev.data[i].x);
+            key.data[i].z = canon.canonicalize(prev.data[i].z);
+        }
+        // This step's own new fault locations all share this one canonical
+        // tag (propagate() only ever takes a single tag per call); a hit
+        // maps it to a single fresh real tag, a miss uses it directly.
+        const std::size_t canonical_new_tag = canon.next_canonical();
 
-        const std::size_t tag = next_tag_++;
-        const auto result = sat::propagate(program, initial, tag);
+        auto id_to_real_map = [&](std::size_t real_new_tag) {
+            std::vector<std::size_t> id_to_real(canonical_new_tag + 1);
+            for (std::size_t c = 0; c < canonical_new_tag; ++c) id_to_real[c] = canon.raw_tag_of(c);
+            id_to_real[canonical_new_tag] = real_new_tag;
+            return id_to_real;
+        };
+
+        std::vector<std::pair<Outcome, StateId>> out;
+
+        auto instantiate = [&](const CachedOutcome& co, const std::vector<std::size_t>& id_to_real) {
+            Outcome outcome;
+            outcome.syndrome = co.syndrome;
+            if (circuit.flag_qubits) outcome.flag = co.flag;
+
+            SatState next;
+            next.fixed_outcomes = prev.fixed_outcomes;
+            for (const auto& f : co.new_fixed_outcomes)
+                next.fixed_outcomes.push_back({decanonicalize(f.formula, id_to_real), f.value});
+            next.data.resize(n_);
+            for (std::size_t i = 0; i < n_; ++i) {
+                next.data[i].x = decanonicalize(co.new_data[i].x, id_to_real);
+                next.data[i].z = decanonicalize(co.new_data[i].z, id_to_real);
+            }
+            states_.push_back(std::move(next));
+            out.emplace_back(std::move(outcome), states_.size() - 1);
+        };
+
+        if (const auto found = step_cache_.find(key); found != step_cache_.end()) {
+            ++step_cache_hits_;
+            const auto id_to_real = id_to_real_map(next_tag_++);
+            for (const auto& co : found->second.outcomes) instantiate(co, id_to_real);
+            return out;
+        }
+
+        // Cache miss: propagate on canonical-tagged input using the
+        // canonical tag for this step's own locations, so the result we
+        // cache is expressed entirely in canonical (reusable) terms.
+        std::map<sat::Wire, sat::SymbolicPauli> canonical_initial;
+        for (std::size_t i = 0; i < n_; ++i) canonical_initial[{circuit.data_qubits, i}] = key.data[i];
+        const auto result = sat::propagate(program, canonical_initial, canonical_new_tag);
 
         // Bucket each recorded outcome by which ancilla register it measured
         // (qm: -> syndrome, qf: -> flag), in program order, since
@@ -269,14 +413,14 @@ public:
         CMSat::SATSolver solver;
         Gadgets g(solver);
 
-        for (const auto& fixed : prev.fixed_outcomes) g.assert_xor_equals(fixed.formula, fixed.value);
+        for (const auto& fixed : key.fixed_outcomes) g.assert_xor_equals(fixed.formula, fixed.value);
 
         std::set<LocationKey> locations;
         const auto collect = [&](const sat::XorTerm& t) {
             for (const auto& v : t) locations.insert(location_of(v));
         };
-        for (const auto& fixed : prev.fixed_outcomes) collect(fixed.formula);
-        for (const auto& p : prev.data) { collect(p.x); collect(p.z); }
+        for (const auto& fixed : key.fixed_outcomes) collect(fixed.formula);
+        for (const auto& p : key.data) { collect(p.x); collect(p.z); }
         for (const auto& f : syn_formula) collect(f);
         for (const auto& f : flag_formula) collect(f);
         for (const auto& p : new_data) { collect(p.x); collect(p.z); }
@@ -298,7 +442,8 @@ public:
         for (const auto& f : flag_formula) target.push_back(g.term_lit(f));
 
         // --- AllSAT: enumerate every reachable combination of target bits ---
-        std::vector<std::pair<Outcome, StateId>> out;
+        StepCacheEntry entry;
+        const auto id_to_real = id_to_real_map(next_tag_++);
         for (;;) {
             const auto solved = solver.solve();
             if (solved != CMSat::l_True) break;
@@ -308,27 +453,23 @@ public:
             bits.reserve(target.size());
             for (const auto& lit : target) bits.push_back(model.at(lit.var()) == CMSat::l_True);
 
-            Outcome outcome;
-            outcome.syndrome.assign(bits.begin(), bits.begin() + static_cast<long>(syn_w));
-            if (circuit.flag_qubits) {
-                outcome.flag.assign(bits.begin() + static_cast<long>(syn_w), bits.end());
-            }
-
-            SatState next;
-            next.fixed_outcomes = prev.fixed_outcomes;
-            for (std::size_t i = 0; i < syn_w; ++i) next.fixed_outcomes.push_back({syn_formula[i], bits[i]});
+            CachedOutcome co;
+            co.syndrome.assign(bits.begin(), bits.begin() + static_cast<long>(syn_w));
+            if (circuit.flag_qubits) co.flag.assign(bits.begin() + static_cast<long>(syn_w), bits.end());
+            for (std::size_t i = 0; i < syn_w; ++i) co.new_fixed_outcomes.push_back({syn_formula[i], bits[i]});
             for (std::size_t i = 0; i < flag_w; ++i)
-                next.fixed_outcomes.push_back({flag_formula[i], bits[syn_w + i]});
-            next.data = new_data;
+                co.new_fixed_outcomes.push_back({flag_formula[i], bits[syn_w + i]});
+            co.new_data = new_data;
 
-            states_.push_back(std::move(next));
-            out.emplace_back(std::move(outcome), states_.size() - 1);
+            instantiate(co, id_to_real);
+            entry.outcomes.push_back(std::move(co));
 
             std::vector<CMSat::Lit> block;
             block.reserve(target.size());
             for (std::size_t i = 0; i < target.size(); ++i) block.push_back(bits[i] ? ~target[i] : target[i]);
             solver.add_clause(block);
         }
+        step_cache_.emplace(std::move(key), std::move(entry));
         return out;
     }
 
@@ -342,9 +483,38 @@ public:
     // is reported first, exactly like dd_backend.cpp's check_uncached.
     std::optional<Failure> check(StateId id) override {
         ++check_calls_;
-        // By value: see the comment on the same pattern in step().
-        const SatState prev = states_[id];
+        const SatState& prev = states_[id];
 
+        // Canonicalize once: the cache key, and the actual solving input,
+        // are the same canonical formulas (propagate()'s "which tag" is
+        // arbitrary, so canonical ids work exactly as well as real ones for
+        // solving -- and unlike real ones, they make two structurally
+        // identical states -- reached via different histories -- hash equal).
+        Canonicalizer canon;
+        std::vector<FixedOutcome> canon_fixed;
+        canon_fixed.reserve(prev.fixed_outcomes.size());
+        for (const auto& f : prev.fixed_outcomes) canon_fixed.push_back({canon.canonicalize(f.formula), f.value});
+        std::vector<sat::SymbolicPauli> canon_data(n_);
+        for (std::size_t i = 0; i < n_; ++i) {
+            canon_data[i].x = canon.canonicalize(prev.data[i].x);
+            canon_data[i].z = canon.canonicalize(prev.data[i].z);
+        }
+
+        CheckCacheKey key{std::move(canon_fixed), std::move(canon_data)};
+        if (const auto found = check_cache_.find(key); found != check_cache_.end()) {
+            ++check_cache_hits_;
+            return found->second;
+        }
+
+        std::optional<Failure> result = check_uncached(key.fixed_outcomes, key.data);
+        check_cache_.emplace(std::move(key), result);
+        return result;
+    }
+
+    // `fixed_outcomes`/`data` are already canonicalized (arbitrary tag
+    // values work fine for solving; only their *relationships* matter).
+    std::optional<Failure> check_uncached(const std::vector<FixedOutcome>& fixed_outcomes,
+                                          const std::vector<sat::SymbolicPauli>& data) {
         for (int t = 0; t <= tau_; ++t) {
             CMSat::SATSolver solver;
             Gadgets g(solver);
@@ -354,18 +524,18 @@ public:
                 const std::size_t offset = c == 0 ? 0 : COPY_OFFSET;
                 copy_data[c].resize(n_);
                 for (std::size_t i = 0; i < n_; ++i) {
-                    copy_data[c][i].x = retag(prev.data[i].x, offset);
-                    copy_data[c][i].z = retag(prev.data[i].z, offset);
+                    copy_data[c][i].x = retag(data[i].x, offset);
+                    copy_data[c][i].z = retag(data[i].z, offset);
                 }
-                for (const auto& fixed : prev.fixed_outcomes)
+                for (const auto& fixed : fixed_outcomes)
                     g.assert_xor_equals(retag(fixed.formula, offset), fixed.value);
 
                 std::set<LocationKey> locations;
                 const auto collect = [&](const sat::XorTerm& term) {
                     for (const auto& v : term) locations.insert(location_of(v));
                 };
-                for (const auto& fixed : prev.fixed_outcomes) collect(retag(fixed.formula, offset));
-                for (const auto& p : prev.data) {
+                for (const auto& fixed : fixed_outcomes) collect(retag(fixed.formula, offset));
+                for (const auto& p : data) {
                     collect(retag(p.x, offset));
                     collect(retag(p.z, offset));
                 }
@@ -422,7 +592,8 @@ public:
 
             std::ostringstream detail;
             detail << e1_str << " and " << e2_str << " share the same measurement record at t=" << t
-                   << " but their product is a nontrivial logical operator";
+                   << " but their product is a nontrivial logical operator (or an equivalent "
+                      "pair -- witnesses of a cached, structurally identical state)";
             return Failure{t, detail.str()};
         }
         return std::nullopt;
@@ -435,9 +606,17 @@ public:
     }
 
     std::string statistics() const override {
+        const auto percent = [](std::size_t part, std::size_t whole) {
+            return whole == 0 ? 0 : static_cast<int>(100.0 * static_cast<double>(part) /
+                                                      static_cast<double>(whole));
+        };
         std::ostringstream out;
-        out << "sat backend     : " << step_calls_ << " step(s), " << check_calls_ << " check(s), "
-            << states_.size() << " state(s)";
+        out << "sat backend     : " << step_calls_ << " step(s), " << step_cache_hits_
+            << " from cache (" << percent(step_cache_hits_, step_calls_) << "%); " << check_calls_
+            << " check(s), " << check_cache_hits_ << " from cache ("
+            << percent(check_cache_hits_, check_calls_) << "%)\n"
+            << "distinct states : " << check_cache_.size() << " checked, " << step_cache_.size()
+            << " stepped, " << states_.size() << " total";
         return out.str();
     }
 
@@ -456,6 +635,10 @@ private:
     std::size_t next_tag_ = 0;
     std::size_t step_calls_ = 0;
     std::size_t check_calls_ = 0;
+    std::size_t step_cache_hits_ = 0;
+    std::size_t check_cache_hits_ = 0;
+    std::map<CheckCacheKey, std::optional<Failure>> check_cache_;
+    std::map<StepCacheKey, StepCacheEntry> step_cache_;
     std::map<std::string, QasmProgram> programs_;
 };
 
