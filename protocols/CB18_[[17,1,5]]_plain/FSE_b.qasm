@@ -6,6 +6,8 @@ include "stdgates.inc";
 
 // data[0] = q1, ..., data[16] = q17.
 // syn = measurement ancilla, reused for every generator.
+// Convention: syn is prepared in |+> and measured in the X basis.
+// Z checks use CZ(syn,data); X checks use CX(syn->data).
 
 qubit[17] data;
 qubit syn;
@@ -17,12 +19,14 @@ bit[16] m;
 // Unflagged SE for G0 = Z1Z2Z3Z4
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[0], syn;
-cx data[1], syn;
-cx data[2], syn;
-cx data[3], syn;
+cz syn, data[0];
+cz syn, data[1];
+cz syn, data[2];
+cz syn, data[3];
 
+h syn;  // X-basis readout
 m[0] = measure syn;
 barrier data, syn;
 
@@ -30,24 +34,16 @@ barrier data, syn;
 // Unflagged SE for G1 = X1X2X3X4
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[0];
-h data[1];
-h data[2];
-h data[3];
 
-cx data[0], syn;
-cx data[1], syn;
-cx data[2], syn;
-cx data[3], syn;
+cx syn, data[0];
+cx syn, data[1];
+cx syn, data[2];
+cx syn, data[3];
 
-// Restore data-qubit basis.
-h data[0];
-h data[1];
-h data[2];
-h data[3];
 
+h syn;  // X-basis readout
 m[1] = measure syn;
 barrier data, syn;
 
@@ -55,12 +51,14 @@ barrier data, syn;
 // Unflagged SE for G2 = Z1Z3Z5Z6
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[0], syn;
-cx data[2], syn;
-cx data[4], syn;
-cx data[5], syn;
+cz syn, data[0];
+cz syn, data[2];
+cz syn, data[4];
+cz syn, data[5];
 
+h syn;  // X-basis readout
 m[2] = measure syn;
 barrier data, syn;
 
@@ -68,24 +66,16 @@ barrier data, syn;
 // Unflagged SE for G3 = X1X3X5X6
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[0];
-h data[2];
-h data[4];
-h data[5];
 
-cx data[0], syn;
-cx data[2], syn;
-cx data[4], syn;
-cx data[5], syn;
+cx syn, data[0];
+cx syn, data[2];
+cx syn, data[4];
+cx syn, data[5];
 
-// Restore data-qubit basis.
-h data[0];
-h data[2];
-h data[4];
-h data[5];
 
+h syn;  // X-basis readout
 m[3] = measure syn;
 barrier data, syn;
 
@@ -93,12 +83,14 @@ barrier data, syn;
 // Unflagged SE for G4 = Z5Z6Z9Z10
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[4], syn;
-cx data[5], syn;
-cx data[8], syn;
-cx data[9], syn;
+cz syn, data[4];
+cz syn, data[5];
+cz syn, data[8];
+cz syn, data[9];
 
+h syn;  // X-basis readout
 m[4] = measure syn;
 barrier data, syn;
 
@@ -106,24 +98,16 @@ barrier data, syn;
 // Unflagged SE for G5 = X5X6X9X10
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[4];
-h data[5];
-h data[8];
-h data[9];
 
-cx data[4], syn;
-cx data[5], syn;
-cx data[8], syn;
-cx data[9], syn;
+cx syn, data[4];
+cx syn, data[5];
+cx syn, data[8];
+cx syn, data[9];
 
-// Restore data-qubit basis.
-h data[4];
-h data[5];
-h data[8];
-h data[9];
 
+h syn;  // X-basis readout
 m[5] = measure syn;
 barrier data, syn;
 
@@ -131,12 +115,14 @@ barrier data, syn;
 // Unflagged SE for G6 = Z7Z8Z11Z12
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[6], syn;
-cx data[7], syn;
-cx data[10], syn;
-cx data[11], syn;
+cz syn, data[6];
+cz syn, data[7];
+cz syn, data[10];
+cz syn, data[11];
 
+h syn;  // X-basis readout
 m[6] = measure syn;
 barrier data, syn;
 
@@ -144,24 +130,16 @@ barrier data, syn;
 // Unflagged SE for G7 = X7X8X11X12
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[6];
-h data[7];
-h data[10];
-h data[11];
 
-cx data[6], syn;
-cx data[7], syn;
-cx data[10], syn;
-cx data[11], syn;
+cx syn, data[6];
+cx syn, data[7];
+cx syn, data[10];
+cx syn, data[11];
 
-// Restore data-qubit basis.
-h data[6];
-h data[7];
-h data[10];
-h data[11];
 
+h syn;  // X-basis readout
 m[7] = measure syn;
 barrier data, syn;
 
@@ -169,12 +147,14 @@ barrier data, syn;
 // Unflagged SE for G8 = Z9Z10Z13Z14
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[8], syn;
-cx data[9], syn;
-cx data[12], syn;
-cx data[13], syn;
+cz syn, data[8];
+cz syn, data[9];
+cz syn, data[12];
+cz syn, data[13];
 
+h syn;  // X-basis readout
 m[8] = measure syn;
 barrier data, syn;
 
@@ -182,24 +162,16 @@ barrier data, syn;
 // Unflagged SE for G9 = X9X10X13X14
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[8];
-h data[9];
-h data[12];
-h data[13];
 
-cx data[8], syn;
-cx data[9], syn;
-cx data[12], syn;
-cx data[13], syn;
+cx syn, data[8];
+cx syn, data[9];
+cx syn, data[12];
+cx syn, data[13];
 
-// Restore data-qubit basis.
-h data[8];
-h data[9];
-h data[12];
-h data[13];
 
+h syn;  // X-basis readout
 m[9] = measure syn;
 barrier data, syn;
 
@@ -207,12 +179,14 @@ barrier data, syn;
 // Unflagged SE for G10 = Z11Z12Z15Z16
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[10], syn;
-cx data[11], syn;
-cx data[14], syn;
-cx data[15], syn;
+cz syn, data[10];
+cz syn, data[11];
+cz syn, data[14];
+cz syn, data[15];
 
+h syn;  // X-basis readout
 m[10] = measure syn;
 barrier data, syn;
 
@@ -220,24 +194,16 @@ barrier data, syn;
 // Unflagged SE for G11 = X11X12X15X16
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[10];
-h data[11];
-h data[14];
-h data[15];
 
-cx data[10], syn;
-cx data[11], syn;
-cx data[14], syn;
-cx data[15], syn;
+cx syn, data[10];
+cx syn, data[11];
+cx syn, data[14];
+cx syn, data[15];
 
-// Restore data-qubit basis.
-h data[10];
-h data[11];
-h data[14];
-h data[15];
 
+h syn;  // X-basis readout
 m[11] = measure syn;
 barrier data, syn;
 
@@ -245,12 +211,14 @@ barrier data, syn;
 // Unflagged SE for G12 = Z8Z12Z16Z17
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[7], syn;
-cx data[11], syn;
-cx data[15], syn;
-cx data[16], syn;
+cz syn, data[7];
+cz syn, data[11];
+cz syn, data[15];
+cz syn, data[16];
 
+h syn;  // X-basis readout
 m[12] = measure syn;
 barrier data, syn;
 
@@ -258,24 +226,16 @@ barrier data, syn;
 // Unflagged SE for G13 = X8X12X16X17
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[7];
-h data[11];
-h data[15];
-h data[16];
 
-cx data[7], syn;
-cx data[11], syn;
-cx data[15], syn;
-cx data[16], syn;
+cx syn, data[7];
+cx syn, data[11];
+cx syn, data[15];
+cx syn, data[16];
 
-// Restore data-qubit basis.
-h data[7];
-h data[11];
-h data[15];
-h data[16];
 
+h syn;  // X-basis readout
 m[13] = measure syn;
 barrier data, syn;
 
@@ -283,16 +243,18 @@ barrier data, syn;
 // Unflagged SE for G14 = Z3Z4Z6Z7Z10Z11Z14Z15
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-cx data[2], syn;
-cx data[3], syn;
-cx data[5], syn;
-cx data[6], syn;
-cx data[9], syn;
-cx data[10], syn;
-cx data[13], syn;
-cx data[14], syn;
+cz syn, data[2];
+cz syn, data[3];
+cz syn, data[5];
+cz syn, data[6];
+cz syn, data[9];
+cz syn, data[10];
+cz syn, data[13];
+cz syn, data[14];
 
+h syn;  // X-basis readout
 m[14] = measure syn;
 barrier data, syn;
 
@@ -300,34 +262,18 @@ barrier data, syn;
 // Unflagged SE for G15 = X3X4X6X7X10X11X14X15
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 
-// Change support qubits from X-basis parity to Z-style parity extraction.
-h data[2];
-h data[3];
-h data[5];
-h data[6];
-h data[9];
-h data[10];
-h data[13];
-h data[14];
 
-cx data[2], syn;
-cx data[3], syn;
-cx data[5], syn;
-cx data[6], syn;
-cx data[9], syn;
-cx data[10], syn;
-cx data[13], syn;
-cx data[14], syn;
+cx syn, data[2];
+cx syn, data[3];
+cx syn, data[5];
+cx syn, data[6];
+cx syn, data[9];
+cx syn, data[10];
+cx syn, data[13];
+cx syn, data[14];
 
-// Restore data-qubit basis.
-h data[2];
-h data[3];
-h data[5];
-h data[6];
-h data[9];
-h data[10];
-h data[13];
-h data[14];
 
+h syn;  // X-basis readout
 m[15] = measure syn;

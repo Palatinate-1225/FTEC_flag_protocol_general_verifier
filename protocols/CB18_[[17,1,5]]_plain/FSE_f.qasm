@@ -7,6 +7,9 @@ include "stdgates.inc";
 
 // data[0] = q1, ..., data[16] = q17.
 // syn is the syndrome/measurement ancilla, reused for every generator.
+// Convention: syn is prepared in |+> and measured in the X basis.
+// Z checks use CZ(syn,data); X checks use CX(syn->data).
+// flag qubits are prepared in |0>, measured in Z, and coupled by CX(syn->flag).
 // flag[0..2] are reusable physical flag ancillas.
 // m[i] stores the syndrome bit for generator gi.
 // f is a compact classical flag record with no unused bits.
@@ -42,22 +45,22 @@ bit[20] f;
 // weight 4; uses 1 flag qubit(s); records to f[0]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[0], syn;
-cx flag[0], syn;
-cx data[1], syn;
-cx data[2], syn;
-cx flag[0], syn;
-cx data[3], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[0];
+cx syn, flag[0];
+cz syn, data[1];
+cz syn, data[2];
+cx syn, flag[0];
+cz syn, data[3];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[0] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[0] = measure flag[0];
 
 barrier data, syn, flag;
@@ -67,34 +70,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[1]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[0];
-h data[1];
-h data[2];
-h data[3];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[0], syn;
-cx flag[0], syn;
-cx data[1], syn;
-cx data[2], syn;
-cx flag[0], syn;
-cx data[3], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[0];
+cx syn, flag[0];
+cx syn, data[1];
+cx syn, data[2];
+cx syn, flag[0];
+cx syn, data[3];
 
-// Restore data basis.
-h data[0];
-h data[1];
-h data[2];
-h data[3];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[1] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[1] = measure flag[0];
 
 barrier data, syn, flag;
@@ -104,22 +97,22 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[2]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[0], syn;
-cx flag[0], syn;
-cx data[2], syn;
-cx data[4], syn;
-cx flag[0], syn;
-cx data[5], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[0];
+cx syn, flag[0];
+cz syn, data[2];
+cz syn, data[4];
+cx syn, flag[0];
+cz syn, data[5];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[2] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[2] = measure flag[0];
 
 barrier data, syn, flag;
@@ -129,34 +122,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[3]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[0];
-h data[2];
-h data[4];
-h data[5];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[0], syn;
-cx flag[0], syn;
-cx data[2], syn;
-cx data[4], syn;
-cx flag[0], syn;
-cx data[5], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[0];
+cx syn, flag[0];
+cx syn, data[2];
+cx syn, data[4];
+cx syn, flag[0];
+cx syn, data[5];
 
-// Restore data basis.
-h data[0];
-h data[2];
-h data[4];
-h data[5];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[3] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[3] = measure flag[0];
 
 barrier data, syn, flag;
@@ -166,22 +149,22 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[4]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[4], syn;
-cx flag[0], syn;
-cx data[5], syn;
-cx data[8], syn;
-cx flag[0], syn;
-cx data[9], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[4];
+cx syn, flag[0];
+cz syn, data[5];
+cz syn, data[8];
+cx syn, flag[0];
+cz syn, data[9];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[4] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[4] = measure flag[0];
 
 barrier data, syn, flag;
@@ -191,34 +174,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[5]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[4];
-h data[5];
-h data[8];
-h data[9];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[4], syn;
-cx flag[0], syn;
-cx data[5], syn;
-cx data[8], syn;
-cx flag[0], syn;
-cx data[9], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[4];
+cx syn, flag[0];
+cx syn, data[5];
+cx syn, data[8];
+cx syn, flag[0];
+cx syn, data[9];
 
-// Restore data basis.
-h data[4];
-h data[5];
-h data[8];
-h data[9];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[5] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[5] = measure flag[0];
 
 barrier data, syn, flag;
@@ -228,22 +201,22 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[6]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[6], syn;
-cx flag[0], syn;
-cx data[7], syn;
-cx data[10], syn;
-cx flag[0], syn;
-cx data[11], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[6];
+cx syn, flag[0];
+cz syn, data[7];
+cz syn, data[10];
+cx syn, flag[0];
+cz syn, data[11];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[6] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[6] = measure flag[0];
 
 barrier data, syn, flag;
@@ -253,34 +226,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[7]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[6];
-h data[7];
-h data[10];
-h data[11];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[6], syn;
-cx flag[0], syn;
-cx data[7], syn;
-cx data[10], syn;
-cx flag[0], syn;
-cx data[11], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[6];
+cx syn, flag[0];
+cx syn, data[7];
+cx syn, data[10];
+cx syn, flag[0];
+cx syn, data[11];
 
-// Restore data basis.
-h data[6];
-h data[7];
-h data[10];
-h data[11];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[7] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[7] = measure flag[0];
 
 barrier data, syn, flag;
@@ -290,22 +253,22 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[8]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[8], syn;
-cx flag[0], syn;
-cx data[9], syn;
-cx data[12], syn;
-cx flag[0], syn;
-cx data[13], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[8];
+cx syn, flag[0];
+cz syn, data[9];
+cz syn, data[12];
+cx syn, flag[0];
+cz syn, data[13];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[8] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[8] = measure flag[0];
 
 barrier data, syn, flag;
@@ -315,34 +278,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[9]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[8];
-h data[9];
-h data[12];
-h data[13];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[8], syn;
-cx flag[0], syn;
-cx data[9], syn;
-cx data[12], syn;
-cx flag[0], syn;
-cx data[13], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[8];
+cx syn, flag[0];
+cx syn, data[9];
+cx syn, data[12];
+cx syn, flag[0];
+cx syn, data[13];
 
-// Restore data basis.
-h data[8];
-h data[9];
-h data[12];
-h data[13];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[9] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[9] = measure flag[0];
 
 barrier data, syn, flag;
@@ -352,22 +305,22 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[10]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[10], syn;
-cx flag[0], syn;
-cx data[11], syn;
-cx data[14], syn;
-cx flag[0], syn;
-cx data[15], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[10];
+cx syn, flag[0];
+cz syn, data[11];
+cz syn, data[14];
+cx syn, flag[0];
+cz syn, data[15];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[10] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[10] = measure flag[0];
 
 barrier data, syn, flag;
@@ -377,34 +330,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[11]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[10];
-h data[11];
-h data[14];
-h data[15];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[10], syn;
-cx flag[0], syn;
-cx data[11], syn;
-cx data[14], syn;
-cx flag[0], syn;
-cx data[15], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[10];
+cx syn, flag[0];
+cx syn, data[11];
+cx syn, data[14];
+cx syn, flag[0];
+cx syn, data[15];
 
-// Restore data basis.
-h data[10];
-h data[11];
-h data[14];
-h data[15];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[11] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[11] = measure flag[0];
 
 barrier data, syn, flag;
@@ -414,22 +357,22 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[12]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[7], syn;
-cx flag[0], syn;
-cx data[11], syn;
-cx data[15], syn;
-cx flag[0], syn;
-cx data[16], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[7];
+cx syn, flag[0];
+cz syn, data[11];
+cz syn, data[15];
+cx syn, flag[0];
+cz syn, data[16];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[12] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[12] = measure flag[0];
 
 barrier data, syn, flag;
@@ -439,34 +382,24 @@ barrier data, syn, flag;
 // weight 4; uses 1 flag qubit(s); records to f[13]
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[7];
-h data[11];
-h data[15];
-h data[16];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[7], syn;
-cx flag[0], syn;
-cx data[11], syn;
-cx data[15], syn;
-cx flag[0], syn;
-cx data[16], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[7];
+cx syn, flag[0];
+cx syn, data[11];
+cx syn, data[15];
+cx syn, flag[0];
+cx syn, data[16];
 
-// Restore data basis.
-h data[7];
-h data[11];
-h data[15];
-h data[16];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[13] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[13] = measure flag[0];
 
 barrier data, syn, flag;
@@ -474,40 +407,38 @@ barrier data, syn, flag;
 // ------------------------------------------------------------
 // Flagged SE for g14 = Z3Z4Z6Z7Z10Z11Z14Z15
 // weight 8; uses 3 flag qubit(s); records to f[14]..f[16]
+// Fig. 7(b) flag/data ordering:
+// D1-F1-D2-F2-D3-D4-F3-D5-D6-F1-D7-F3-F2-D8
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 reset flag[1];
-h flag[1];  // prepare |+>
 reset flag[2];
-h flag[2];  // prepare |+>
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[2], syn;
-cx flag[0], syn;
-cx data[3], syn;
-cx flag[1], syn;
-cx data[5], syn;
-cx flag[2], syn;
-cx data[6], syn;
-cx data[9], syn;
-cx flag[0], syn;
-cx data[10], syn;
-cx flag[1], syn;
-cx data[13], syn;
-cx flag[2], syn;
-cx data[14], syn;
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cz syn, data[2];
+cx syn, flag[0];
+cz syn, data[3];
+cx syn, flag[1];
+cz syn, data[5];
+cz syn, data[6];
+cx syn, flag[2];
+cz syn, data[9];
+cz syn, data[10];
+cx syn, flag[0];
+cz syn, data[13];
+cx syn, flag[2];
+cx syn, flag[1];
+cz syn, data[14];
 
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[14] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[14] = measure flag[0];
-h flag[1];
 f[15] = measure flag[1];
-h flag[2];
 f[16] = measure flag[2];
 
 barrier data, syn, flag;
@@ -515,60 +446,38 @@ barrier data, syn, flag;
 // ------------------------------------------------------------
 // Flagged SE for g15 = X3X4X6X7X10X11X14X15
 // weight 8; uses 3 flag qubit(s); records to f[17]..f[19]
+// Fig. 7(b) flag/data ordering:
+// D1-F1-D2-F2-D3-D4-F3-D5-D6-F1-D7-F3-F2-D8
 // ------------------------------------------------------------
 reset syn;
+h syn;  // prepare syndrome ancilla in |+>
 reset flag[0];
-h flag[0];  // prepare |+>
 reset flag[1];
-h flag[1];  // prepare |+>
 reset flag[2];
-h flag[2];  // prepare |+>
 
-// Convert X-parity extraction to Z-style CNOT parity extraction.
-h data[2];
-h data[3];
-h data[5];
-h data[6];
-h data[9];
-h data[10];
-h data[13];
-h data[14];
+// Interleaved direct data-syndrome and syndrome-to-flag couplings.
+cx syn, data[2];
+cx syn, flag[0];
+cx syn, data[3];
+cx syn, flag[1];
+cx syn, data[5];
+cx syn, data[6];
+cx syn, flag[2];
+cx syn, data[9];
+cx syn, data[10];
+cx syn, flag[0];
+cx syn, data[13];
+cx syn, flag[2];
+cx syn, flag[1];
+cx syn, data[14];
 
-// Interleaved data-to-syndrome and flag-to-syndrome CNOTs.
-cx data[2], syn;
-cx flag[0], syn;
-cx data[3], syn;
-cx flag[1], syn;
-cx data[5], syn;
-cx flag[2], syn;
-cx data[6], syn;
-cx data[9], syn;
-cx flag[0], syn;
-cx data[10], syn;
-cx flag[1], syn;
-cx data[13], syn;
-cx flag[2], syn;
-cx data[14], syn;
-
-// Restore data basis.
-h data[2];
-h data[3];
-h data[5];
-h data[6];
-h data[9];
-h data[10];
-h data[13];
-h data[14];
-
-// Measure syndrome in Z basis.
+// Measure syndrome in X basis.
+h syn;  // X-basis readout
 m[15] = measure syn;
 
-// Measure used flag qubit(s) in X basis, compactly stored.
-h flag[0];
+// Measure used flag qubit(s) in Z basis, compactly stored.
 f[17] = measure flag[0];
-h flag[1];
 f[18] = measure flag[1];
-h flag[2];
 f[19] = measure flag[2];
 
 barrier data, syn, flag;

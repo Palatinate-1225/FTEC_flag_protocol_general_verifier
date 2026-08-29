@@ -11,7 +11,7 @@ include "stdgates.inc";
 // data[0] = q1, data[1] = q2, data[2] = q3,
 // data[3] = q4, data[4] = q5.
 //
-// syn  = syndrome ancilla, initialized to |0>
+// syn  = syndrome ancilla, initialized to |+>
 // m[i] = syndrome bit for generator Gi
 
 qubit[5] data;
@@ -19,18 +19,16 @@ qubit syn;
 
 bit[4] m;
 
-// Measure a Z component using syn initialized in |0>:
-// data qubit is control, syndrome ancilla is target.
+// Measure a Z component using phase kickback with syn in |+>:
+// CZ couples the Z component to the syndrome ancilla.
 gate meas_z_component d, a {
-    cx d, a;
+    cz d, a;
 }
 
-// Measure an X component using basis change:
-// H; CNOT(data -> ancilla); H.
+// Measure an X component directly.
+// Equivalent to H_d; CZ(d,a); H_d, but written as CX(ancilla -> data).
 gate meas_x_component d, a {
-    h d;
-    cx d, a;
-    h d;
+    cx a, d;
 }
 
 
@@ -40,6 +38,7 @@ gate meas_x_component d, a {
 
 reset syn;
 
+h syn;               // prepare |+> syndrome ancilla
 // X on q1
 meas_x_component data[0], syn;
 
@@ -52,7 +51,8 @@ meas_z_component data[2], syn;
 // X on q4
 meas_x_component data[3], syn;
 
-// syndrome Z-basis measurement
+// syndrome X-basis measurement
+h syn;               // rotate X basis to Z basis for measurement
 m[0] = measure syn;
 
 barrier data, syn;
@@ -64,6 +64,7 @@ barrier data, syn;
 
 reset syn;
 
+h syn;               // prepare |+> syndrome ancilla
 // X on q2
 meas_x_component data[1], syn;
 
@@ -76,7 +77,8 @@ meas_z_component data[3], syn;
 // X on q5
 meas_x_component data[4], syn;
 
-// syndrome Z-basis measurement
+// syndrome X-basis measurement
+h syn;               // rotate X basis to Z basis for measurement
 m[1] = measure syn;
 
 barrier data, syn;
@@ -88,6 +90,7 @@ barrier data, syn;
 
 reset syn;
 
+h syn;               // prepare |+> syndrome ancilla
 // X on q1
 meas_x_component data[0], syn;
 
@@ -100,7 +103,8 @@ meas_z_component data[3], syn;
 // Z on q5
 meas_z_component data[4], syn;
 
-// syndrome Z-basis measurement
+// syndrome X-basis measurement
+h syn;               // rotate X basis to Z basis for measurement
 m[2] = measure syn;
 
 barrier data, syn;
@@ -112,6 +116,7 @@ barrier data, syn;
 
 reset syn;
 
+h syn;               // prepare |+> syndrome ancilla
 // Z on q1
 meas_z_component data[0], syn;
 
@@ -124,5 +129,6 @@ meas_x_component data[3], syn;
 // Z on q5
 meas_z_component data[4], syn;
 
-// syndrome Z-basis measurement
+// syndrome X-basis measurement
+h syn;               // rotate X basis to Z basis for measurement
 m[3] = measure syn;

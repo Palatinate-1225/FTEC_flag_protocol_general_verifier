@@ -26,29 +26,27 @@ h syn[2];
 reset syn[3];
 h syn[3];
 
-// depth 1: g1:X4, g5:X3, g3:X1, g4:Z5
-cx syn[0], data[3];
-cx syn[1], data[2];
-cx syn[2], data[0];
-cz syn[3], data[4];
-
-// depth 2: g1:Z3, g5:Z2, g3:Z5, g4:Z1
-cz syn[0], data[2];
-cz syn[1], data[1];
-cz syn[2], data[4];
-cz syn[3], data[0];
-
-// depth 3: g1:Z2, g5:Z1, g3:X3, g4:X4
+cz syn[2], data[0];
 cz syn[0], data[1];
-cz syn[1], data[0];
-cx syn[2], data[2];
+cx syn[1], data[2];
 cx syn[3], data[3];
 
-// depth 4: g1:X1, g5:X5, g3:Z4, g4:X2
-cx syn[0], data[0];
-cx syn[1], data[4];
-cz syn[2], data[3];
+cz syn[2], data[1];
+cz syn[0], data[2];
+
+cz syn[3], data[0];
+cx syn[2], data[2];
+cx syn[0], data[3];
+cz syn[1], data[4];
+
+cx syn[1], data[0];
 cx syn[3], data[1];
+
+cx syn[0], data[0];
+cx syn[2], data[4];
+
+cz syn[1], data[3];
+cz syn[3], data[4];
 
 h syn[0];
 m[0] = measure syn[0];

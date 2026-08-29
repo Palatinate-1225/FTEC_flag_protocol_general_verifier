@@ -14,45 +14,40 @@ include "stdgates.inc";
 // m[0..3] = (m1,m5,m3,m4).
 
 qubit[5] data;
-qubit[1] syn;
+qubit[2] syn;
 bit[4] m;
 
-// g1 = XZZXI
 reset syn[0];
+reset syn[1];
 h syn[0];
-cx syn[0], data[0];
+h syn[1];
 cz syn[0], data[1];
+cx syn[1], data[2];
 cz syn[0], data[2];
 cx syn[0], data[3];
-h syn[0];
-m[0] = measure syn[0];
-
-// g5 = ZZXIX
-reset syn[0];
-h syn[0];
-cz syn[0], data[0];
-cz syn[0], data[1];
-cx syn[0], data[2];
-cx syn[0], data[4];
-h syn[0];
-m[1] = measure syn[0];
-
-// g3 = XIXZZ
-reset syn[0];
-h syn[0];
+cz syn[1], data[4];
+cx syn[1], data[0];
 cx syn[0], data[0];
-cx syn[0], data[2];
-cz syn[0], data[3];
-cz syn[0], data[4];
+cz syn[1], data[3];
 h syn[0];
-m[2] = measure syn[0];
+h syn[1];
+m[0] = measure syn[0];
+m[1] = measure syn[1];
 
-// g4 = ZXIXZ
 reset syn[0];
+reset syn[1];
 h syn[0];
+h syn[1];
 cz syn[0], data[0];
-cx syn[0], data[1];
-cx syn[0], data[3];
-cz syn[0], data[4];
+cx syn[1], data[3];
+cz syn[0], data[1];
+cz syn[1], data[0];
+cx syn[0], data[2];
+cx syn[1], data[1];
+cx syn[0], data[4];
+cz syn[1], data[4];
 h syn[0];
-m[3] = measure syn[0];
+h syn[1];
+m[2] = measure syn[0];
+m[3] = measure syn[1];
+
