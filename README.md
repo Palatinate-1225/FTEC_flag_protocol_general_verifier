@@ -14,7 +14,8 @@
                                                                      ▼
                                                          ┌─── ftec::Backend ───┐
                                                          │  mock               │
-                                                         │  dd(BDD,尚未接上)    │
+                                                         │  dd(BDD / BuDDy)    │
+                                                         │  spbdd(SPBDD/CUDD) │
                                                          │  未來其他解法         │
                                                          └─────────────────────┘
 ```
@@ -23,15 +24,16 @@
 
 ```
 CMakeLists.txt
-cmake/              BuDDy 的取得與建置
+cmake/              BuDDy、SPBDD/CUDD 的取得與建置
 docs/               FPDL 與 parser 的說明,samples/ 是文件裡指令的產出範例
 protocols/          協定測資,一個目錄一個協定(.fpdl + 它引用的 .qasm)
 include/fpdl/       前端:協定解析、路徑圖
 include/ftec/       驗證核心:trie、backend 介面、走訪
 src/fpdl/  src/ftec/
-tools/              各個執行檔的進入點
+tools/              各個執行檔的進入點,以及 bench_backends.py(backend 對跑)
 tests/
 backends/dd/        decision-diagram backend(自成一套,含自己的文件與測試)
+backends/spbdd/     同一個模型,改用 SPBDD 函式庫(CUDD)實作
 ```
 
 ## 建置
@@ -42,8 +44,26 @@ cmake --build build -j
 ctest --test-dir build
 ```
 
-不需要 autotools。BuDDy(decision-diagram backend 的依賴)由 `cmake/BuDDy.cmake` 直接當
-一般 CMake target 編;已有 checkout 可用 `-DFTEC_BUDDY_SOURCE_DIR=<path>` 指過去省下下載。
+BuDDy(`dd` backend 的依賴)由 `cmake/BuDDy.cmake` 直接當一般 CMake target 編,不需要
+autotools;已有 checkout 可用 `-DFTEC_BUDDY_SOURCE_DIR=<path>` 指過去省下下載。
+
+`spbdd` backend 就沒這麼好命:它底下的 CUDD 是 autotools 專案,`config.h` 是幾十個探測
+出來的巨集而不是三個版本號,手寫不划算,所以那一份**要 autoconf / automake / libtool**:
+
+```bash
+sudo apt install -y build-essential autoconf automake libtool   # Debian/Ubuntu
+brew install autoconf automake libtool                          # macOS
+```
+
+沒有這些工具(或不想等 CUDD 編)就關掉它,其餘照舊:
+
+```bash
+cmake -S . -B build -DFTEC_ENABLE_SPBDD=OFF
+```
+
+`cmake/SPBDD.cmake` 會抓 SPBDD 與 CUDD 各自的原始碼;已有 checkout 可用
+`-DFTEC_SPBDD_SOURCE_DIR=<path>`、`-DFTEC_CUDD_SOURCE_DIR=<path>` 指過去。CUDD 只在第一次
+建置時編一次。
 
 ## 使用
 
@@ -58,7 +78,7 @@ ctest --test-dir build
 
 | 選項 | 預設值 | 說明 |
 |---|---|---|
-| `--backend=NAME` | `mock` | 用哪個解法。`dd` 是真正的驗證,`mock` 只走結構(見下)。 |
+| `--backend=NAME` | `mock` | 用哪個解法。`dd` 與 `spbdd` 是真正的驗證,`mock` 只走結構(見下)。`spbdd` 會開動態變數重排以對齊 `dd` 的 `bdd_autoreorder(BDD_REORDER_SIFT)`,**這不是 SPBDD 的預設**;`spbdd-fixed` 才是(關閉重排),而且比較快,見下。 |
 | `--bound=N` | 倍增搜尋 | 固定 BMC bound。不給的話從 16 開始倍增,直到展開完整為止(上限 65536)。 |
 | `--max-paths=N` | `5000` | 符號路徑數超過就放棄。 |
 | `--first` | 關閉 | 遇到第一條不受保護的路徑就停。`min_fault_count` 仍然正確,只是不再列出其他失效路徑。 |
@@ -136,6 +156,13 @@ virtual std::vector<std::pair<Outcome, StateId>> step(StateId, const CircuitRef&
   每一條指令、在每個 2-qubit gate 注入全部 16 種 Pauli、在每次 `measure` 依被測 qubit 的
   **x 分量**分裂、照 `reset` 指令清掉 ancilla,最後在每個 terminal 問「有沒有兩個 error
   的乘積落在 `N(S)\S`」。
+- **spbdd** —— **同一個模型**,改用 [SPBDD](https://github.com/jtsai1120/SPBDD)(底下是
+  CUDD)寫,在 `backends/spbdd/`。差別不在語意而在誰來做事:fault injection、reset、
+  measurement 分裂、`N(S)\S` 查詢本來就是那個函式庫的字彙,所以 `dd` 裡那層把它們拆成
+  quantification 與 symplectic 換基的程式碼在這裡不存在。另外 CUDD 的 manager 是物件而
+  不是行程層級的單例,所以同一個行程裡可以同時有多個 backend 活著。
+  兩者必須對每個協定給出**完全相同的判決**,不同就是 bug——`tools/bench_backends.py`
+  就是拿來檢查這件事,順便量價差。
 - **mock** —— 不模擬任何物理:從全零 outcome 出發,在預算內才回報偏離的 outcome。用來
   檢查走訪、路由與 record 記帳,以及證明 `ftec::Backend` 真的是抽象層。
   **它不判斷容錯性**,CLI 的輸出也會這樣說。
@@ -170,6 +197,142 @@ BuDDy 是 hash-consed 的,相同的集合就是同一批節點,拿 root id 當�
 
 **3.5×,不是命中率暗示的 10–20×**——因為被快取掉的多半是**便宜**的操作(集合小、好算),
 留下來的相異狀態才是貴的那些。這是快取常見的現象,值得記下來免得下次又高估。
+
+### dd vs spbdd:換掉 BDD 函式庫值多少
+
+```bash
+tools/bench_backends.py --build-dir build                       # 全部協定
+tools/bench_backends.py --protocol CB18 --backends dd,spbdd-fixed
+```
+
+腳本會把每個協定丟給每個 backend、量 traversal 時間與峰值記憶體,並且**先比判決**:
+`paths` / `records` / `circuits` / `min_t` / 失效路徑清單有任何一項不同就大聲報出來,
+因為那是 bug 而不是效能差異。所有協定的判決到目前為止**完全一致**,包含三個
+distance-3 的失效案例(Bha23 fig6、LL25 `[2,2]`、LL25 `[2,2]^T`)。
+
+distance-5 的協定(每次 4–12 分鐘,才量得出東西;distance-3 的都在 0.05 秒以下,只有
+量化雜訊):
+
+| 協定 | dd | spbdd(sifting) | spbdd-fixed(不重排) | 峰值記憶體 dd → spbdd |
+|---|---|---|---|---|
+| CB18 [[17,1,5]] plain | 277 s / 231 s | 441 s(0.63×) | 253 s(0.91×) | 181 → 441 MiB |
+| LL25 [[17,1,5]] `[1,1,1,1,1,...]^T` | 449 s / 327 s | 742 s(0.61×) | 391 s(0.83×) | 162 → 406 MiB |
+| LL25 [[17,1,5]] `[2,2,2,1,1]^T` | 386 s / 376 s | 655 s(0.59×) | 443 s(0.85×) | 203 → 441 MiB |
+
+`dd` 有兩個數字是因為它在每一輪 sweep 裡都重跑一次當基準——機器上還有別的東西在跑,
+同樣的工作量會差到 37%(449 s vs 327 s)。所以**倍率只在同一輪 sweep 內比才有意義**,
+表格裡的括號都是這樣算的;跨欄比絕對秒數會被雜訊蓋過去。
+
+量的是同一件事:兩個 backend 的快取結構是逐行照搬的(同樣兩個快取、同樣的鍵、同樣在
+`grow_to` 清掉),只有指紋取什麼不同——`dd` 取 BuDDy 的節點索引 `bdd::id()`,`spbdd` 取
+CUDD 的節點位址 `Bdd::node()`,兩者都靠套件的 canonical 保證而不是啟發式。實測也對得起
+來,CB18 [[17,1,5]] 上三個 backend 的記帳**逐字相同**:
+
+```
+dd           2082957 step(s), 1991697 from cache (95%); 2374764 check(s), 2344088 from cache (98%) | 30676 checked, 91260 stepped
+spbdd        (同上,一字不差)
+spbdd-fixed  (同上,一字不差)
+```
+
+順帶回答了一個本來要擔心的問題:**CUDD 的重排不會動到這些鍵**,它是就地改節點,位址跟
+語意都保住。
+
+三件事:
+
+1. **判決一樣、走訪一樣,所以這是純粹的價差**,不是兩個不同的答案。
+2. **慢的是重排,不是換函式庫**。關掉重排之後 SPBDD 跟手寫的 BuDDy 版本大致打平
+   (0.83–0.92×),開著就掉到 0.6× 上下。細節見下一節。
+3. **記憶體是 2.2–2.4 倍,但不是 diagram 變大**。CUDD 自己回報的 `memory_in_use` 開不開
+   重排都是 240 MB 上下,而 `dd` **整個 process** 的峰值才 181 MiB——所以那是 CUDD 的
+   unique table / cache 把自己撐大的:`dd` 那邊 `bdd_init(100000, 10000)` 給了明確的起始
+   大小,`spbdd` 這邊 `ManagerConfig` 全留 0(用 CUDD 預設)。`unique_slots`、`cache_size`、
+   `max_memory` 三個欄位都可以壓,還沒試。
+
+換句話說,以「跑得更快」為目的的話目前**沒有賺**;真正的好處在別處——fault injection、
+reset、measurement 分裂、`N(S)\S` 查詢都是函式庫的公開 API,`backends/spbdd/` 只剩下
+電路走訪與快取,`pauli_bdd.cpp` + `stabilizer.cpp` 那 850 行等價物不用自己維護。
+
+### 重排:21 種方法與各種門檻都試過了,沒有一個比關掉好
+
+SPBDD 的 `ManagerConfig` 只開放「重排開/關」,方法寫死成 `CUDD_REORDER_SIFT`。這裡的
+backend 因此繞過它,從 `Manager::raw()` 拿到 `DdManager*` 直接呼叫 `Cudd_AutodynEnable`
+與 `Cudd_SetNextReordering`,把 CUDD 全部 21 種方法與觸發門檻都接成 CLI:
+
+```bash
+./build/ftec-verify <protocol.fpdl> --backend=spbdd:symm_sift
+./build/ftec-verify <protocol.fpdl> --backend=spbdd:sift:1000000   # 門檻 = 首次觸發的節點數
+tools/bench_backends.py --protocol CB18 --backends spbdd:none,spbdd:sift,spbdd:window2
+```
+
+CB18 [[17,1,5]] plain,判決全部維持 clean,倍率一律以**同一輪 sweep 內**的 `spbdd:none`
+(248–251 s)為基準:
+
+| method | traversal | vs none | 重排次數 | 重排耗時 |
+|---|---|---|---|---|
+| **none** | **248 s** | **1.00×** | 0 | — |
+| sift `@10⁶` / `@10⁷` | 249 / 251 s | 1.01× / 1.00× | 0 | 0 s |
+| window2 | 271 s | 0.91× | 8 | 0.4 s |
+| window3 | 286 s | 0.87× | — | — |
+| symm_sift | 333 s | 0.75× | — | — |
+| window4 | 341 s | 0.73× | — | — |
+| lazy_sift | 345 s | 0.72× | — | — |
+| sift | 347 s | 0.71× | 12 | 20.2 s |
+| sift `@10⁵` | 347 s | 0.72× | 4 | 16.8 s |
+| window4_conv | 360 s | 0.69× | 11 | 12.8 s |
+| random_pivot | 372 s | 0.67× | 9 | 32.8 s |
+| group_sift | 390 s | 0.64× | — | — |
+| window3_conv | 398 s | 0.62× | 11 | 2.7 s |
+| symm_sift_conv | 408 s | 0.61× | 12 | 91.3 s |
+| sift_conv | 419 s | 0.59× | 12 | 85.7 s |
+| random | 451 s | 0.55× | — | — |
+| group_sift_conv | 462 s | 0.54× | 12 | 133.6 s |
+| window2_conv | 570 s | 0.44× | 10 | **0.7 s** |
+| annealing / genetic | > 900 s | — | — | — |
+| exact | `CUDD failed in Cudd_bddAnd` | — | — | — |
+| linear / linear_conv | **不能用**,見下 | — | — | — |
+
+三個結論,前兩個推翻了先前寫在這裡的猜測:
+
+**門檻是開關,不是旋鈕。** 把首次觸發門檻從預設的 4004 拉到 10⁵,重排從 12 次降到 4 次,
+總時間**一秒都沒省**(347.2 → 346.6);拉到 10⁶ 就一次都不觸發,直接退化成 `none`。中間
+沒有甜蜜點。
+
+**代價不在重排程式裡。** `sift` 比 `none` 慢 97 s,其中只有 20 s 花在重排;`window2_conv`
+慢 320 s,重排只花 **0.7 s**。真正在動的是**運算次數**:
+
+| | cache lookups | 命中率 | live nodes | peak nodes | traversal |
+|---|---|---|---|---|---|
+| none | 2.866 G | 95% | 584,951 | 4,884,138 | 255 s |
+| sift | 3.575 G(+24.7%) | 95% | 481,626 | 5,074,230 | 347 s |
+| window2 | 3.042 G(+6.2%) | 95% | 582,038 | 4,840,192 | 279 s |
+
+命中率三者都是 95%——重排**沒有**讓 cache 變難用。變多的是 lookup 本身,因為 CUDD 每次
+重排都要 flush computed table(裡面的結果引用了層級已改變的節點),被 memoise 掉的運算
+得重算一遍。扣掉重排時間後,每一次多出來的 lookup 兩種方法代價幾乎一致——sift 107 ns、
+window2 134 ns,正好是 240 MB 工作集上隨機存取的 DRAM 延遲量級。**多出來的時間就是多出來
+的運算**,不是別的。
+
+而買到的東西是零:live nodes 少 17.7%,但 peak nodes 反而**變多**(重排自己的 swap 要
+配置),`memory_in_use` 239 → 246 MB 幾乎沒動。工作集是 peak 和表的大小決定的,不是最終
+的 live 數。
+
+**`linear` 與 `linear_conv` 不是慢,是不能用。** 這兩個是 CUDD 唯二會套用**線性變換**的
+方法——它們不只重排層級,還會把一個變數換成兩個變數的 XOR。而 SPBDD 整個設計建立在相反
+的前提上,`paulispace.hpp` 自己寫得很清楚:「CUDD may reorder levels freely; all code here
+is written against variable numbers, which never change」。變數的**意義**一旦被改寫,SPBDD
+用變數編號組出來的 quantification cube 就不是它以為的那個 cube,CUDD 會依哪邊先壞掉而
+給出兩種死法:
+
+```
+linear       cuddGarbageCollect: problem in table 5, dead count != deleted   （abort）
+linear_conv  Error: Can only abstract positive cubes
+```
+
+backend 因此**直接拒絕**這兩個並說明原因,而不是讓人自己去解讀 CUDD 的錯誤訊息。這值得
+往上游報一個 issue:SPBDD 應該在 API 上排除它們,或至少寫進文件。
+
+所以 `spbdd-fixed`(= `spbdd:none`,也是 SPBDD 自己的預設)就是這個工作量上的正確設定,
+而 `--backend=spbdd` 開著 sifting 只是為了跟 `dd` 對齊才存在的比較組。
 
 ### 下一步的加速:把 record 放進 BDD
 
