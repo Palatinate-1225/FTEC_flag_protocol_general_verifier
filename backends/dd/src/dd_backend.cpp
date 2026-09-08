@@ -17,6 +17,46 @@ namespace {
 
 using pbdd::PauliSetBDD;
 
+// How big BuDDy's node table and operator cache start out.
+//
+// PauliSetBDD::init's own defaults (100k nodes, 10k cache) are sized for its
+// tests, not for a distance-5 protocol. Raising them is worth 6-8% once
+// reordering is off (CB18 149.6 -> 141.6 s, LL25 438.2 -> 405.9 s, min of 3)
+// and costs ~12 MiB; going further does not pay -- 4M/256k was no faster on
+// either protocol and cost another 74 MiB.
+//
+// This is the second-order knob. The first-order one is FTEC_DD_REORDER below.
+// Both are overridable at configure time so the choice can be measured rather
+// than asserted -- see README.
+#ifndef FTEC_DD_INIT_NODES
+#define FTEC_DD_INIT_NODES (1 << 20)
+#endif
+#ifndef FTEC_DD_INIT_CACHE
+#define FTEC_DD_INIT_CACHE (1 << 16)
+#endif
+constexpr int kInitNodes = FTEC_DD_INIT_NODES;
+constexpr int kInitCache = FTEC_DD_INIT_CACHE;
+
+// PauliSetBDD::init turns BuDDy's sifting on. Measured over both size regimes
+// and both protocols that are large enough to time, it never once paid:
+//
+//                        sift on   sift off
+//   CB18  100k/10k        225.6 s    149.6 s     1.51x
+//   CB18  1M/64k          142.0 s    141.6 s     a wash -- it never fires
+//   LL25  100k/10k        913.9 s    438.2 s     2.09x
+//   LL25  1M/64k         2089    s    405.9 s    (single shot, but the worst
+//                                                 cell in the whole grid)
+//
+// (min of 3 except where noted, CB18 [[17,1,5]] plain and LL25 [[19,1,5]].)
+//
+// The rule underneath: BuDDy reorders when the node table has to grow, so a
+// table big enough never to grow never reorders -- which is why 1M looks
+// harmless on CB18 and is catastrophic on LL25, whose table does grow. Sizing
+// alone therefore does not protect against it; turning it off does.
+#ifndef FTEC_DD_REORDER
+#define FTEC_DD_REORDER 0
+#endif
+
 // Where each register of a circuit lands in the global qubit numbering.
 //
 // The data qubits are fixed at 0..n-1 and carry the encoded state across the
@@ -42,7 +82,10 @@ public:
         data_qubits_ = code.n;
         tau_         = tau;
 
-        PauliSetBDD::init(data_qubits_);
+        PauliSetBDD::init(data_qubits_, kInitNodes, kInitCache);
+#if !FTEC_DD_REORDER
+        bdd_autoreorder(BDD_REORDER_NONE);
+#endif
         owns_session_ = true;
         allocated_    = data_qubits_;
 
