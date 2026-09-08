@@ -11,7 +11,16 @@ add_library(ftec_spbdd
 
 target_include_directories(ftec_spbdd PUBLIC include)
 target_link_libraries(ftec_spbdd PUBLIC SPBDD::spbdd ftec_core)
-# PRIVATE: only the reordering knobs reach past SPBDD's API into CUDD, and
-# nothing above this library should have to know that CUDD is down there.
-target_link_libraries(ftec_spbdd PRIVATE CUDD::headers)
 target_compile_options(ftec_spbdd PRIVATE -Wall -Wextra)
+
+# Which package SPBDD is sitting on is not cosmetic here: the CUDD-backed
+# version hands out its DdManager through Manager::raw(), which is the only
+# way to reach CUDD's reordering methods and thresholds, and the BuDDy-backed
+# version has no such hatch and offers reordering as one bit. The backend
+# compiles against both and says so at run time.
+#
+# PRIVATE: nothing above this library should have to know what is down there.
+if(FTEC_SPBDD_PACKAGE STREQUAL "cudd")
+    target_link_libraries(ftec_spbdd PRIVATE CUDD::headers)
+    target_compile_definitions(ftec_spbdd PRIVATE FTEC_SPBDD_HAS_CUDD)
+endif()

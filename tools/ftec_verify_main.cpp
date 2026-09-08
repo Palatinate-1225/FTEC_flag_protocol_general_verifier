@@ -68,17 +68,17 @@ void usage(const char* argv0) {
         << "         whether any reachable set holds two errors whose product is a\n"
         << "         logical operator.\n"
 #ifdef FTEC_HAVE_SPBDD
-        << "  spbdd  the same model over the SPBDD library (CUDD underneath) instead\n"
-        << "         of BuDDy. It must agree with dd on every verdict; what differs\n"
-        << "         is what it costs. Plain `spbdd` means sifting, matching what dd\n"
-        << "         asks BuDDy for -- comparable, but not the fastest setting.\n"
+        << "  spbdd  the same model over the SPBDD library instead of hand-written\n"
+        << "         BuDDy. It must agree with dd on every verdict; what differs is\n"
+        << "         what it costs. Reordering is off, as it is for dd.\n"
         << "  spbdd:METHOD[:THRESHOLD]\n"
         << "         pick the reordering yourself. METHOD is none, sift, symm_sift,\n"
         << "         group_sift, window2/3/4, linear, ... (--backend=spbdd:? lists\n"
         << "         them); THRESHOLD is the live-node count at which the first\n"
         << "         reordering fires, which shifts the whole schedule.\n"
         << "  spbdd-fixed\n"
-        << "         an alias for spbdd:none, which is SPBDD's own default.\n"
+        << "         an alias for plain spbdd, kept because the README's tables\n"
+        << "         name it. Use spbdd:sift for the reordering it used to mean.\n"
 #endif
         ;
 }
@@ -151,8 +151,10 @@ private:
 // and with each column labelled by what it actually was.
 ftec::SpbddReorder parse_spbdd_reorder(const std::string& name) {
     ftec::SpbddReorder reorder;
-    if (name == "spbdd") return reorder;                       // sift, CUDD's own schedule
-    if (name == "spbdd-fixed") return {"none", 0};
+    // Both mean no reordering now. spbdd-fixed is kept because the README's
+    // measurement tables name it, and a table you cannot reproduce from the
+    // names in it is worse than a redundant alias.
+    if (name == "spbdd" || name == "spbdd-fixed") return reorder;
 
     const std::string rest = name.substr(std::string("spbdd:").size());
     const auto        colon = rest.find(':');

@@ -14,8 +14,8 @@
                                                                      ▼
                                                          ┌─── ftec::Backend ───┐
                                                          │  mock               │
-                                                         │  dd(BDD / BuDDy)    │
-                                                         │  spbdd(SPBDD/CUDD) │
+                                                         │  dd(手寫 / BuDDy)   │
+                                                         │  spbdd(SPBDD 函式庫)│
                                                          │  未來其他解法         │
                                                          └─────────────────────┘
 ```
@@ -24,7 +24,7 @@
 
 ```
 CMakeLists.txt
-cmake/              BuDDy、SPBDD/CUDD 的取得與建置
+cmake/              BuDDy、SPBDD(與 CUDD 版所需的 CUDD)的取得與建置
 docs/               FPDL 與 parser 的說明,samples/ 是文件裡指令的產出範例
 protocols/          協定測資,一個目錄一個協定(.fpdl + 它引用的 .qasm)
 include/fpdl/       前端:協定解析、路徑圖
@@ -33,7 +33,7 @@ src/fpdl/  src/ftec/
 tools/              各個執行檔的進入點,以及 bench_backends.py(backend 對跑)
 tests/
 backends/dd/        decision-diagram backend(自成一套,含自己的文件與測試)
-backends/spbdd/     同一個模型,改用 SPBDD 函式庫(CUDD)實作
+backends/spbdd/     同一個模型,改用 SPBDD 函式庫實作(BuDDy 或 CUDD 版皆可)
 ```
 
 ## 建置
@@ -47,23 +47,33 @@ ctest --test-dir build
 BuDDy(`dd` backend 的依賴)由 `cmake/BuDDy.cmake` 直接當一般 CMake target 編,不需要
 autotools;已有 checkout 可用 `-DFTEC_BUDDY_SOURCE_DIR=<path>` 指過去省下下載。
 
-`spbdd` backend 就沒這麼好命:它底下的 CUDD 是 autotools 專案,`config.h` 是幾十個探測
-出來的巨集而不是三個版本號,手寫不划算,所以那一份**要 autoconf / automake / libtool**:
+`spbdd` backend 預設也不需要 autotools:**SPBDD 的 `main` 現在是 BuDDy 版**,而那個 BuDDy
+就是上面同一個 target(所以一個行程裡只有一份,兩個 backend 才能連進同一個執行檔)。
+
+SPBDD 有兩份同一套 API 的實作,`cmake/SPBDD.cmake` **不從分支名判斷**,而是讀
+`manager.hpp` 裡有沒有 `DdManager` 來認,configure 時會印出來:
+
+```bash
+cmake -S . -B build                                          # main:BuDDy 版
+cmake -S . -B build -DFTEC_SPBDD_GIT_TAG=try/CUDD_backend    # CUDD 版
+```
+
+只有 CUDD 版**要 autoconf / automake / libtool**(CUDD 的 `config.h` 是幾十個探測出來的
+巨集,手寫不划算):
 
 ```bash
 sudo apt install -y build-essential autoconf automake libtool   # Debian/Ubuntu
 brew install autoconf automake libtool                          # macOS
 ```
 
-沒有這些工具(或不想等 CUDD 編)就關掉它,其餘照舊:
+不想要 spbdd backend 就整個關掉,其餘照舊:
 
 ```bash
 cmake -S . -B build -DFTEC_ENABLE_SPBDD=OFF
 ```
 
-`cmake/SPBDD.cmake` 會抓 SPBDD 與 CUDD 各自的原始碼;已有 checkout 可用
-`-DFTEC_SPBDD_SOURCE_DIR=<path>`、`-DFTEC_CUDD_SOURCE_DIR=<path>` 指過去。CUDD 只在第一次
-建置時編一次。
+已有 checkout 可用 `-DFTEC_SPBDD_SOURCE_DIR=<path>`、`-DFTEC_CUDD_SOURCE_DIR=<path>` 指
+過去。CUDD 只在第一次建置時編一次。
 
 ## 使用
 
@@ -78,7 +88,7 @@ cmake -S . -B build -DFTEC_ENABLE_SPBDD=OFF
 
 | 選項 | 預設值 | 說明 |
 |---|---|---|
-| `--backend=NAME` | `mock` | 用哪個解法。`dd` 與 `spbdd` 是真正的驗證,`mock` 只走結構(見下)。`spbdd` 會開動態變數重排以對齊 `dd` 的 `bdd_autoreorder(BDD_REORDER_SIFT)`,**這不是 SPBDD 的預設**;`spbdd-fixed` 才是(關閉重排),而且比較快,見下。 |
+| `--backend=NAME` | `mock` | 用哪個解法。`dd` 與 `spbdd` 是真正的驗證,`mock` 只走結構(見下)。兩者都**不做動態變數重排**(理由見下),要開就用 `spbdd:sift`。`spbdd-fixed` 是 `spbdd` 的別名,保留是因為下面的量測表格用了這個名字。 |
 | `--bound=N` | 倍增搜尋 | 固定 BMC bound。不給的話從 16 開始倍增,直到展開完整為止(上限 65536)。 |
 | `--max-paths=N` | `5000` | 符號路徑數超過就放棄。 |
 | `--first` | 關閉 | 遇到第一條不受保護的路徑就停。`min_fault_count` 仍然正確,只是不再列出其他失效路徑。 |
@@ -156,12 +166,17 @@ virtual std::vector<std::pair<Outcome, StateId>> step(StateId, const CircuitRef&
   每一條指令、在每個 2-qubit gate 注入全部 16 種 Pauli、在每次 `measure` 依被測 qubit 的
   **x 分量**分裂、照 `reset` 指令清掉 ancilla,最後在每個 terminal 問「有沒有兩個 error
   的乘積落在 `N(S)\S`」。
-- **spbdd** —— **同一個模型**,改用 [SPBDD](https://github.com/jtsai1120/SPBDD)(底下是
-  CUDD)寫,在 `backends/spbdd/`。差別不在語意而在誰來做事:fault injection、reset、
-  measurement 分裂、`N(S)\S` 查詢本來就是那個函式庫的字彙,所以 `dd` 裡那層把它們拆成
-  quantification 與 symplectic 換基的程式碼在這裡不存在。另外 CUDD 的 manager 是物件而
-  不是行程層級的單例,所以同一個行程裡可以同時有多個 backend 活著。
-  兩者必須對每個協定給出**完全相同的判決**,不同就是 bug——`tools/bench_backends.py`
+- **spbdd** —— **同一個模型**,改用 [SPBDD](https://github.com/jtsai1120/SPBDD) 函式庫寫,
+  在 `backends/spbdd/`。差別不在語意而在誰來做事:fault injection、reset、measurement
+  分裂、`N(S)\S` 查詢本來就是那個函式庫的字彙,所以 `dd` 裡那層把它們拆成 quantification
+  與 symplectic 換基的程式碼(`pauli_bdd.cpp` + `stabilizer.cpp`,約 850 行)在這裡不存在。
+
+  SPBDD 有 **BuDDy 版(`main`)與 CUDD 版(`try/CUDD_backend`)** 兩份同一套 API 的實作,
+  這個 backend **兩份都能編**,由 `cmake/SPBDD.cmake` 讀原始碼認出來。兩份都跑同一份走訪
+  與快取程式碼,所以量到的差就只是底下那層。唯一的 API 差別在重排控制:CUDD 版透過
+  `Manager::raw()` 可以拿到全部方法與門檻,BuDDy 版只有開/關。
+
+  三者必須對每個協定給出**完全相同的判決**,不同就是 bug——`tools/bench_backends.py`
   就是拿來檢查這件事,順便量價差。
 - **mock** —— 不模擬任何物理:從全零 outcome 出發,在預算內才回報偏離的 outcome。用來
   檢查走訪、路由與 record 記帳,以及證明 `ftec::Backend` 真的是抽象層。
@@ -198,11 +213,33 @@ BuDDy 是 hash-consed 的,相同的集合就是同一批節點,拿 root id 當�
 **3.5×,不是命中率暗示的 10–20×**——因為被快取掉的多半是**便宜**的操作(集合小、好算),
 留下來的相異狀態才是貴的那些。這是快取常見的現象,值得記下來免得下次又高估。
 
+### 三方比較:手寫 vs SPBDD/BuDDy vs SPBDD/CUDD
+
+條件全部拉平(都不重排,`dd` 用 `1<<20`/`1<<16`,也就是 SPBDD 自己的預設),CB18
+[[17,1,5]] plain,機器閒置、兩個執行檔背靠背跑,`dd` 兩輪各是 142.5 / 144.0 s(差 1%,
+所以絕對值可以跨輪比):
+
+| | traversal | peak | vs dd |
+|---|---|---|---|
+| **dd**(手寫 + BuDDy) | **142.5–144.0 s** | 196 MiB | 1.00× |
+| SPBDD on **BuDDy** | 155.7 s | 240 MiB | 0.92× |
+| SPBDD on **CUDD** | 256.8 s | 440 MiB | 0.55× |
+
+兩個結論:
+
+- **BuDDy 版明顯優於 CUDD 版**:快 1.65×、記憶體少 1.83×。同一份 API、同一份走訪程式碼,
+  只換底下的套件。
+- **SPBDD 這層抽象大約值 8%**(慢 8%、記憶體多 22%)。用它換掉 850 行自己維護的 Pauli 層,
+  這個價錢很便宜。
+
+(下面 CUDD 版的重排實驗是在兩者交換位置之前做的,那時 CUDD 版還在 `main`。數字仍然有效,
+只是要用 `-DFTEC_SPBDD_GIT_TAG=try/CUDD_backend` 才重現得出來。)
+
 ### dd vs spbdd:換掉 BDD 函式庫值多少
 
 ```bash
 tools/bench_backends.py --build-dir build                       # 全部協定
-tools/bench_backends.py --protocol CB18 --backends dd,spbdd-fixed
+tools/bench_backends.py --protocol CB18 --backends dd,spbdd:sift
 ```
 
 腳本會把每個協定丟給每個 backend、量 traversal 時間與峰值記憶體,並且**先比判決**:
@@ -331,8 +368,14 @@ linear_conv  Error: Can only abstract positive cubes
 backend 因此**直接拒絕**這兩個並說明原因,而不是讓人自己去解讀 CUDD 的錯誤訊息。這值得
 往上游報一個 issue:SPBDD 應該在 API 上排除它們,或至少寫進文件。
 
-所以 `spbdd-fixed`(= `spbdd:none`,也是 SPBDD 自己的預設)就是這個工作量上的正確設定,
-而 `--backend=spbdd` 開著 sifting 只是為了跟 `dd` 對齊才存在的比較組。
+所以不重排就是這個工作量上的正確設定。**`--backend=spbdd` 現在預設不重排**(也是 SPBDD
+自己 `ManagerConfig` 的預設),`spbdd-fixed` 變成它的別名 —— 保留是因為上面的表格用了那個
+名字。要重現表格裡開著 sifting 的那幾列,用 `spbdd:sift`。
+
+`dd` 也在 `main` 上做了同一件事(commit `71ebde1`):`bdd_autoreorder(BDD_REORDER_NONE)`
+加上 `bdd_init(1<<20, 1<<16)`,對 CB18 是 1.59×、對 LL25 [[19,1,5]] 是 2.25×。SPBDD 那邊
+的節點表與 cache 預設本來就是 `1<<20` / `1<<16`,所以兩個 backend 現在**問 BuDDy 要的東西
+完全一樣**,剩下的差異才真的是函式庫那一層。
 
 ### 下一步的加速:把 record 放進 BDD
 

@@ -16,10 +16,14 @@ namespace ftec {
 // them is larger than the difference between the two BDD packages, so the
 // backend reaches past SPBDD to Manager::raw() and sets them itself.
 struct SpbddReorder {
-    // One of the names in kSpbddReorderMethods below. "none" disables
-    // reordering, which is SPBDD's own default; "sift" is what SPBDD asks for
-    // when told to reorder, and what the dd backend asks BuDDy for.
-    std::string method = "sift";
+    // One of the names spbdd_reorder_methods() returns. "none" disables
+    // reordering; "sift" is what SPBDD asks for when told to reorder.
+    //
+    // The default is "none", which is SPBDD's own default and, since the
+    // measurements in the README, what the dd backend does too: reordering
+    // never paid on any protocol large enough to time, and on one of them it
+    // cost 5x. Pass spbdd:sift to get the other behaviour back.
+    std::string method = "none";
 
     // Cudd_SetNextReordering: the live-node count at which the *first*
     // reordering fires. 0 leaves CUDD's own default (4004) alone. Later
@@ -29,8 +33,15 @@ struct SpbddReorder {
     int threshold = 0;
 };
 
-// Every method this backend accepts, roughly cheapest first. Both of these
-// read one table in the .cpp, so there is no second list to keep in step.
+// Which BDD package the SPBDD this was built against is sitting on: "cudd" or
+// "buddy". SPBDD has an implementation of the same public API over each, and
+// which one is in the build decides how much of the reordering control below
+// exists -- CUDD's every method and threshold, or one bit.
+[[nodiscard]] const char* spbdd_package();
+
+// Every method this backend accepts, roughly cheapest first, for whichever
+// package the build has. Both of these read one table in the .cpp, so there is
+// no second list to keep in step.
 [[nodiscard]] std::vector<std::string> spbdd_reorder_methods();
 [[nodiscard]] bool is_spbdd_reorder_method(const std::string& name);
 
@@ -50,8 +61,8 @@ struct SpbddReorder {
 //     vocabulary, so the layer that used to spell them out in terms of
 //     quantification and a symplectic change of basis is gone.
 //
-// The default asks for sifting, matching what the dd backend asks BuDDy for.
-// That is the comparable setting, not the fast one: see the README.
+// The default asks for no reordering, which is both SPBDD's own default and
+// what the dd backend settled on. See the README for what that is worth.
 std::unique_ptr<Backend> make_spbdd_backend(const SpbddReorder& reorder = {});
 
 } // namespace ftec

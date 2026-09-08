@@ -4,16 +4,27 @@
 
 #include <spbdd/spbdd.hpp>
 
+// SPBDD has two implementations of one public API, over CUDD and over BuDDy,
+// and this backend builds against either -- which is the point, since running
+// the same model over both is how you separate "the library costs this much"
+// from "the package costs this much". FTEC_SPBDD_HAS_CUDD is set by
+// backends/spbdd/CMakeLists.txt from what the checkout actually contains.
+//
+// Only the reordering controls differ. The CUDD version hands out its
+// DdManager through Manager::raw(), so every method and threshold CUDD has is
+// reachable; the BuDDy version has no such hatch and offers one bit.
+#ifdef FTEC_SPBDD_HAS_CUDD
 // cudd.h uses size_t and FILE but includes neither header itself, so these two
 // lines are load-bearing and must come first. (SPBDD's own sources say the
-// same thing; this file needs CUDD directly only for the reordering knobs
-// SPBDD does not expose.)
+// same thing.)
 #include <cstddef>
 #include <cstdio>
 
 #include <cudd.h>
+#endif
 
 #include <cstdint>
+#include <type_traits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -29,6 +40,21 @@ namespace {
 
 using spbdd::PauliSet;
 using spbdd::PauliSpace;
+
+// A BDD node's identity, as an integer that can be compared and ordered.
+// CUDD's node handle is a pointer and BuDDy's is an index into a global table;
+// both are canonical, which is the property the caches rely on, and neither is
+// directly usable as a map key.
+template <typename Node>
+std::uintptr_t node_key(Node node) {
+    if constexpr (std::is_pointer_v<Node>) {
+        return reinterpret_cast<std::uintptr_t>(node);
+    } else {
+        return static_cast<std::uintptr_t>(node);
+    }
+}
+
+#ifdef FTEC_SPBDD_HAS_CUDD
 
 // The reordering methods CUDD offers, by the name this backend accepts.
 //
@@ -80,6 +106,26 @@ constexpr ReorderMethod kMethods[] = {
     {"genetic",         CUDD_REORDER_GENETIC,         true},
     {"exact",           CUDD_REORDER_EXACT,           true},
 };
+
+#else
+
+// The BuDDy-backed SPBDD exposes set_dynamic_reordering(bool) and nothing
+// else -- no raw() to reach the package through, and BuDDy's own reordering
+// is sifting over the variable blocks the Manager declares. So the two names
+// that mean something here are the two states that bool has. (BuDDy does have
+// other methods; SPBDD does not surface them, and going around SPBDD was the
+// thing worth avoiding.)
+struct ReorderMethod {
+    const char* name;
+    bool        enabled;
+};
+
+constexpr ReorderMethod kMethods[] = {
+    {"none", false},
+    {"sift", true},
+};
+
+#endif
 
 // Where each register of a circuit lands in the global qubit numbering; the
 // same convention the dd backend uses, and for the same reason. Data qubits
@@ -232,12 +278,13 @@ public:
             << " stepped";
         if (space_) {
             const spbdd::Manager& manager = space_->manager();
-            DdManager*            dd      = manager.raw();
             out << "\ndiagram         : " << manager.live_nodes() << " live node(s), peak "
                 << manager.peak_nodes() << ", " << manager.memory_in_use() << " bytes, "
                 << space_->n_qubits() << " qubits"
-                << "\nreordering      : " << reorder_.method;
+                << "\nreordering      : " << spbdd_package() << '/' << reorder_.method;
             if (reorder_.threshold > 0) out << " @" << reorder_.threshold;
+#ifdef FTEC_SPBDD_HAS_CUDD
+            DdManager* dd = manager.raw();
             // How often it actually fired and what that cost, which is the
             // number the method names alone do not tell you.
             out << ", " << Cudd_ReadReorderings(dd) << " run(s), "
@@ -255,6 +302,7 @@ public:
                 << (lookups > 0 ? static_cast<int>(100.0 * hits / lookups) : 0) << "%), "
                 << Cudd_ReadGarbageCollections(dd) << " gc(s), "
                 << Cudd_ReadGarbageCollectionTime(dd) << " ms";
+#endif
         }
         return out.str();
     }
@@ -271,6 +319,7 @@ private:
                                                  static_cast<double>(whole));
     }
 
+#ifdef FTEC_SPBDD_HAS_CUDD
     // Reach past SPBDD to the DdManager it wraps. Everything here is a CUDD
     // setting SPBDD's public API does not expose; Manager::raw() exists for
     // exactly this and the library documents it as an escape hatch.
@@ -309,6 +358,27 @@ private:
         }
         throw std::runtime_error("spbdd backend: unknown reordering method '" + name + "'");
     }
+#else
+    // Everything this SPBDD offers, through the API rather than around it.
+    void apply_reordering() {
+        space_->manager().set_dynamic_reordering(method_enabled(reorder_.method));
+        if (reorder_.threshold > 0) {
+            throw std::runtime_error(
+                "spbdd backend: this SPBDD is built on BuDDy, which it drives through "
+                "set_dynamic_reordering(bool); there is no threshold to set. Drop the "
+                "':" + std::to_string(reorder_.threshold) + "' from the backend name.");
+        }
+    }
+
+    static bool method_enabled(const std::string& name) {
+        for (const auto& method : kMethods) {
+            if (name == method.name) return method.enabled;
+        }
+        throw std::runtime_error(
+            "spbdd backend: this SPBDD is built on BuDDy and offers reordering as one "
+            "bit, so '" + name + "' has no meaning here; use 'none' or 'sift'");
+    }
+#endif
 
     void release() {
         step_cache_.clear();
@@ -363,9 +433,7 @@ private:
     static Fingerprint fingerprint(const std::vector<PauliSet>& state) {
         Fingerprint print;
         print.reserve(state.size());
-        for (const auto& level : state) {
-            print.push_back(reinterpret_cast<std::uintptr_t>(level.bdd().node()));
-        }
+        for (const auto& level : state) print.push_back(node_key(level.bdd().node()));
         return print;
     }
 
@@ -649,6 +717,14 @@ private:
 };
 
 } // namespace
+
+const char* spbdd_package() {
+#ifdef FTEC_SPBDD_HAS_CUDD
+    return "cudd";
+#else
+    return "buddy";
+#endif
+}
 
 std::vector<std::string> spbdd_reorder_methods() {
     std::vector<std::string> names;
