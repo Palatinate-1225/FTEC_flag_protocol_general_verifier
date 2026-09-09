@@ -2,10 +2,6 @@
 #include "ftec/dag.hpp"
 #include "ftec/verify.hpp"
 
-#ifdef FTEC_HAVE_SPBDD
-#include "spbdd_backend.hpp"
-#endif
-
 #include <sys/resource.h>
 
 #include <chrono>
@@ -66,21 +62,7 @@ void usage(const char* argv0) {
         << "  dd     decision diagrams over Pauli sets: propagates the error set\n"
         << "         through each circuit, injects every two-qubit fault, and asks\n"
         << "         whether any reachable set holds two errors whose product is a\n"
-        << "         logical operator.\n"
-#ifdef FTEC_HAVE_SPBDD
-        << "  spbdd  the same model over the SPBDD library instead of hand-written\n"
-        << "         BuDDy. It must agree with dd on every verdict; what differs is\n"
-        << "         what it costs. Reordering is off, as it is for dd.\n"
-        << "  spbdd:METHOD[:THRESHOLD]\n"
-        << "         pick the reordering yourself. METHOD is none, sift, symm_sift,\n"
-        << "         group_sift, window2/3/4, linear, ... (--backend=spbdd:? lists\n"
-        << "         them); THRESHOLD is the live-node count at which the first\n"
-        << "         reordering fires, which shifts the whole schedule.\n"
-        << "  spbdd-fixed\n"
-        << "         an alias for plain spbdd, kept because the README's tables\n"
-        << "         name it. Use spbdd:sift for the reordering it used to mean.\n"
-#endif
-        ;
+        << "         logical operator.\n";
 }
 
 // ---------------------------------------------------------------------------
@@ -140,50 +122,6 @@ private:
     std::vector<int>         used_;
     std::vector<std::string> steps_;
 };
-
-#ifdef FTEC_HAVE_SPBDD
-// "spbdd", "spbdd-fixed", "spbdd:METHOD" or "spbdd:METHOD:THRESHOLD".
-//
-// The configuration rides on the backend name rather than living in its own
-// option because that is what makes a sweep possible: tools/bench_backends.py
-// takes a list of backend names, so `--backends dd,spbdd:sift,spbdd:window3`
-// already means "run these three and tabulate them", with no extra plumbing
-// and with each column labelled by what it actually was.
-ftec::SpbddReorder parse_spbdd_reorder(const std::string& name) {
-    ftec::SpbddReorder reorder;
-    // Both mean no reordering now. spbdd-fixed is kept because the README's
-    // measurement tables name it, and a table you cannot reproduce from the
-    // names in it is worse than a redundant alias.
-    if (name == "spbdd" || name == "spbdd-fixed") return reorder;
-
-    const std::string rest = name.substr(std::string("spbdd:").size());
-    const auto        colon = rest.find(':');
-    reorder.method = rest.substr(0, colon);
-    if (colon != std::string::npos) {
-        const std::string threshold = rest.substr(colon + 1);
-        try {
-            reorder.threshold = std::stoi(threshold);
-        } catch (const std::exception&) {
-            throw std::runtime_error("bad reordering threshold '" + threshold + "' in '" +
-                                     name + "'; it is a node count");
-        }
-        if (reorder.threshold < 0) {
-            throw std::runtime_error("reordering threshold in '" + name + "' must not be negative");
-        }
-    }
-
-    if (!ftec::is_spbdd_reorder_method(reorder.method)) {
-        std::string known;
-        for (const auto& method : ftec::spbdd_reorder_methods()) {
-            known += known.empty() ? "" : ", ";
-            known += method;
-        }
-        throw std::runtime_error("unknown reordering method '" + reorder.method + "'; known: " +
-                                 known);
-    }
-    return reorder;
-}
-#endif
 
 // Symbolic expansion needs a finite transition bound, and a protocol that has
 // not finished expanding is silently incomplete. Rather than make the caller
@@ -314,11 +252,6 @@ int main(int argc, char** argv) {
 
         if (backend_name == "dd") {
             backend = ftec::make_dd_backend();
-#ifdef FTEC_HAVE_SPBDD
-        } else if (backend_name == "spbdd" || backend_name.rfind("spbdd:", 0) == 0 ||
-                   backend_name == "spbdd-fixed") {
-            backend = ftec::make_spbdd_backend(parse_spbdd_reorder(backend_name));
-#endif
         } else if (backend_name == "mock") {
             backend = std::make_unique<MockBackend>();
         } else {
